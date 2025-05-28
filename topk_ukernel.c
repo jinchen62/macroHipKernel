@@ -69,18 +69,47 @@ extern "C" __global__ void topk_F16I32(const float* __restrict__ inputBuffer,
 
   __syncthreads();
 
+  int SUBGROUPS = 16;
+
+  if (laneID < SUBGROUPS) {
+    // Naive partial sort of k * warpSize
+    for (int i = laneID + k * SUBGROUPS; i < warpSize * k; i += SUBGROUPS) {
+      float hold_v = warp_topk_vals[i];
+      float hold_i = warp_topk_indices[i];
+
+      for (int j = 0; j < k; ++j) {
+        int IDX = j + laneID * k;
+        if (warp_topk_vals[IDX] < hold_v) {
+
+          float tmp_v = warp_topk_vals[IDX];
+          int64_t tmp_i = warp_topk_indices[IDX];
+          warp_topk_vals[IDX] = hold_v;
+          warp_topk_indices[IDX] = hold_i;
+          hold_v = tmp_v;
+          hold_i = tmp_i;
+        }
+      }
+    }
+  }
+
+  __syncthreads();
+
+
   // Merge in lane 0
   if (laneID == 0) {
     // Naive partial sort of k * warpSize
-    for (int i = 0; i < warpSize * k; ++i) {
-      for (int j = i + 1; j < warpSize * k; ++j) {
-        if (warp_topk_vals[j] > warp_topk_vals[i]) {
-          float tmp_v = warp_topk_vals[i];
-          int64_t tmp_i = warp_topk_indices[i];
-          warp_topk_vals[i] = warp_topk_vals[j];
-          warp_topk_indices[i] = warp_topk_indices[j];
-          warp_topk_vals[j] = tmp_v;
-          warp_topk_indices[j] = tmp_i;
+    for (int i = k; i < SUBGROUPS * k; ++i) {
+      float hold_v = warp_topk_vals[i];
+      float hold_i = warp_topk_indices[i];
+
+      for (int j = 0; j < k; ++j) {
+        if (warp_topk_vals[j] < hold_v) {
+          float tmp_v = warp_topk_vals[j];
+          int64_t tmp_i = warp_topk_indices[j];
+          warp_topk_vals[j] = hold_v;
+          warp_topk_indices[j] = hold_i;
+          hold_v = tmp_v;
+          hold_i = tmp_i;
         }
       }
     }
