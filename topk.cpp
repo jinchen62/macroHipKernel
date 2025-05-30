@@ -11,21 +11,21 @@
 using float16_t = uint16_t;
 using float32_t = float;
 
-#define OUTPUT_TY int64_t
+#define OUTPUT_TY int32_t
 #define INPUT_TY float32_t
 
 constexpr uint32_t recordRuns = 100u;
 constexpr int ARGMAX_LABEL = 7243;  // Will still be top-1 here
 constexpr int k = 4;
+constexpr int batchSize = 8;
 
 template <typename DataT>
-static inline void fillIndex(DataT* mat, uint32_t m, uint32_t n, int k)
-{
+static inline void fillIndex(DataT* mat, uint32_t m, uint32_t n, int k) {
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; j++) {
             // Fill top-K largest values at known locations
-            mat[i * n + j] = (j >= ARGMAX_LABEL && j < ARGMAX_LABEL + k)
-                             ? static_cast<DataT>(250.0 - (j - ARGMAX_LABEL))
+            mat[i * n + j] = (j >= ARGMAX_LABEL + i && j < ARGMAX_LABEL + i + k)
+                             ? static_cast<DataT>(250.0)
                              : static_cast<DataT>(0.0);
         }
     }
@@ -48,11 +48,9 @@ std::vector<char> readFileIntoVector(const std::string& filename) {
 }
 
 void benchmark_module(size_t reductionSize) {
-    int batchSize = 1;
-
     std::vector<INPUT_TY> inputBuffer(batchSize * reductionSize);
-    std::vector<OUTPUT_TY> outputIndices(k);
-    std::vector<INPUT_TY> outputValues(k);
+    std::vector<OUTPUT_TY> outputIndices(batchSize * k);
+    std::vector<INPUT_TY> outputValues(batchSize * k);
 
     fillIndex(inputBuffer.data(), batchSize, reductionSize, k);
 
@@ -78,7 +76,7 @@ void benchmark_module(size_t reductionSize) {
         std::cerr << "Failed to load module!" << std::endl;
         return;
     }
-    if (hipModuleGetFunction(&kernel, module, "topk_F16I32") != hipSuccess) {
+    if (hipModuleGetFunction(&kernel, module, "topk_F32I32") != hipSuccess) {
         std::cerr << "Failed to get function!" << std::endl;
         return;
     }
@@ -98,7 +96,7 @@ void benchmark_module(size_t reductionSize) {
     *((hipDeviceptr_t*)kernelParam[1]) = d_outputValues;
     *((hipDeviceptr_t*)kernelParam[2]) = d_outputIndices;
     *((uint32_t*)kernelParam[3]) = static_cast<uint32_t>(reductionSize);
-    *((uint32_t*)kernelParam[4]) = static_cast<uint32_t>(k);
+    // *((uint32_t*)kernelParam[4]) = static_cast<uint32_t>(k);
 
     // Launch
     std::cout << "Launching Topk kernel..." << std::endl;
@@ -126,19 +124,23 @@ void benchmark_module(size_t reductionSize) {
     CHECK_HIP_ERROR(hipMemcpy(outputValues.data(), d_outputValues, bytesOutVal, hipMemcpyDeviceToHost));
 
     // Validate
-    std::vector<OUTPUT_TY> expected;
-    for (int i = 0; i < k; ++i) expected.push_back(ARGMAX_LABEL + i);
-    std::sort(outputIndices.begin(), outputIndices.end());
+    for (int b = 0; b < batchSize; ++b) {
+        std::vector<OUTPUT_TY> expected;
+        for (int i = 0; i < k; ++i) expected.push_back(ARGMAX_LABEL + i + b);
 
-    std::cout << "Top-K indices: ";
-    for (int i = 0; i < k; ++i) std::cout << outputIndices[i] << " ";
-    std::cout << "\n";
+        std::vector<OUTPUT_TY> actual(outputIndices.begin() + b * k, outputIndices.begin() + (b + 1) * k);
+        std::sort(actual.begin(), actual.end());
 
-    if (!std::equal(outputIndices.begin(), outputIndices.end(), expected.begin())) {
-        std::cerr << "Validation failed! Expected topk indices: ";
-        for (int i : expected) std::cout << i << " ";
-        std::cout << std::endl;
-        exit(1);
+        std::cout << "Top-K indices for batch " << b << ": ";
+        for (int i = 0; i < k; ++i) std::cout << actual[i] << " ";
+        std::cout << "\n";
+
+        if (!std::equal(actual.begin(), actual.end(), expected.begin())) {
+            std::cerr << "Validation failed for batch " << b << "! Expected topk indices: ";
+            for (int i : expected) std::cout << i << " ";
+            std::cout << std::endl;
+            exit(1);
+        }
     }
 
     std::cout << "Top-K kernel validated successfully!" << std::endl;
@@ -150,13 +152,13 @@ void benchmark_module(size_t reductionSize) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        std::cout << "Usage: " << argv[0] << " reductionSize" << std::endl;
-        // std::cout << "Usage: " << argv[1] << " K" << std::endl;
-        return 1;
-    }
+    // if (argc != 4) {
+    //     std::cout << "Arguments: reductionSize, batchSize, k" << std::endl;
+    //     return 1;
+    // }
     size_t reductionSize = atoi(argv[1]);
-    // int k = atoi(argv[2]);
+    // int bs = atoi(argv[2]);
+    // int k = atoi(argv[3]);
     benchmark_module(reductionSize);
     return 0;
 }
