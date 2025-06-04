@@ -22,14 +22,17 @@ extern "C" __global__ void topk_F16I32(const _Float16* __restrict__ inputBuffer,
                                        int32_t* __restrict__ outputIndices,
                                        int reductionSize) {
   int k = 4;
-  int batchID = blockIdx.x;
+  int groupID = blockIdx.x; // dim 1
+  int batchID = blockIdx.y; // dim 0
+  int groupCount = gridDim.x;
   uint laneID = threadIdx.x;
 
-  const _Float16* batchInput = inputBuffer + batchID * reductionSize;
-  _Float16* batchOutputValues = outputValues + batchID * k;
-  int32_t* batchOutputIndices = outputIndices + batchID * k;
-  _Float16 NEG_F16_MAX = (_Float16)(-65504.0f);
+  int linearIndex = batchID * groupCount + groupID;
+  const _Float16* batchInput = inputBuffer + linearIndex * reductionSize;
+  _Float16* batchOutputValues = outputValues + linearIndex * k;
+  int32_t* batchOutputIndices = outputIndices + linearIndex * k;
 
+  _Float16 NEG_F16_MAX = (_Float16)(-65504.0f);
   _Float16 topk_vals[MAX_K];
   int32_t topk_indices[MAX_K];
   // Initialize topk values to identity (NEG_F16_MAX for max)
@@ -80,7 +83,6 @@ extern "C" __global__ void topk_F16I32(const _Float16* __restrict__ inputBuffer,
       for (int j = 0; j < k; ++j) {
         int IDX = j + laneID * k;
         if (warp_topk_vals[IDX] < hold_v) {
-
           _Float16 tmp_v = warp_topk_vals[IDX];
           int32_t tmp_i = warp_topk_indices[IDX];
           warp_topk_vals[IDX] = hold_v;

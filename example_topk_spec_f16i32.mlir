@@ -9,16 +9,18 @@
 #rocm_target = #hal.executable.target<"rocm", "rocm-hsaco-fb", {target_arch = "gfx942", ukernels = "none"}>
 
 module attributes {transform.with_named_sequence} {
-  util.func private @topk_3d_f16_entry_point(%arg0: tensor<?x1x?xf16>) -> (tensor<?x1x4xf16>, tensor<?x1x4xi32>) {
+  util.func private @topk_3d_f16_entry_point(%arg0: tensor<?x?x?xf16>) -> (tensor<?x?x4xf16>, tensor<?x?x4xi32>) {
     %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
     %c2 = arith.constant 2 : index
-    %dim0 = tensor.dim %arg0, %c0 : tensor<?x1x?xf16>
-    %dim2 = tensor.dim %arg0, %c2 : tensor<?x1x?xf16>
+    %dim0 = tensor.dim %arg0, %c0 : tensor<?x?x?xf16>
+    %dim1 = tensor.dim %arg0, %c1 : tensor<?x?x?xf16>
+    %dim2 = tensor.dim %arg0, %c2 : tensor<?x?x?xf16>
     %dim2_i32 = arith.index_cast %dim2 : index to i32
-    %4:2 = hal.dispatch.extern "topk_F16I32"[%dim0](%dim2_i32, %arg0) : (i32, tensor<?x1x?xf16>{%dim0, %dim2}) -> tensor<?x1x4xf16>{%dim0}, tensor<?x1x4xi32>{%dim0}
-      count(%device: !hal.device, %batchSize: index) -> (index, index, index) {
-        %c1 = arith.constant 1 : index
-        hal.return %batchSize, %c1, %c1 : index, index, index
+    %4:2 = hal.dispatch.extern "topk_F16I32"[%dim0, %dim1](%dim2_i32, %arg0) : (i32, tensor<?x?x?xf16>{%dim0, %dim1, %dim2}) -> tensor<?x?x4xf16>{%dim0, %dim1}, tensor<?x?x4xi32>{%dim0, %dim1}
+      count(%device: !hal.device, %batchSize: index, %groupSize: index) -> (index, index, index) {
+        %c1_0 = arith.constant 1 : index
+        hal.return %batchSize, %groupSize, %c1_0 : index, index, index
       }
       layout(#hal.pipeline.layout<constants = 1, bindings = [
         #hal.pipeline.binding<storage_buffer, ReadOnly>,
@@ -33,18 +35,18 @@ module attributes {transform.with_named_sequence} {
         ]
       })
       attributes {subgroupSize = 64, workgroup_size = [64 : index, 1 : index, 1 : index]}
-    util.return %4#0, %4#1 : tensor<?x1x4xf16>, tensor<?x1x4xi32>
+    util.return %4#0, %4#1 : tensor<?x?x4xf16>, tensor<?x?x4xi32>
   }
 
   transform.named_sequence @match_topk(%linalg: !transform.any_op {transform.readonly}) -> (!transform.any_op) {
     transform.match.operation_name %linalg ["iree_linalg_ext.topk"] : !transform.any_op
     %in0 = transform.get_operand %linalg[0] : (!transform.any_op) -> !transform.any_value
-    transform.iree.match.cast_compatible_type %in0 = tensor<?x1x?xf16> : !transform.any_value
+    transform.iree.match.cast_compatible_type %in0 = tensor<?x?x?xf16> : !transform.any_value
     transform.iree.match.dim_is_multiple_of %in0[2], 64 : !transform.any_value
     %out0 = transform.get_operand %linalg[2] : (!transform.any_op) -> !transform.any_value
-    transform.iree.match.cast_compatible_type %out0 = tensor<?x1x4xf16> : !transform.any_value
+    transform.iree.match.cast_compatible_type %out0 = tensor<?x?x4xf16> : !transform.any_value
     %out1 = transform.get_operand %linalg[3] : (!transform.any_op) -> !transform.any_value
-    transform.iree.match.cast_compatible_type %out1 = tensor<?x1x4xi32> : !transform.any_value
+    transform.iree.match.cast_compatible_type %out1 = tensor<?x?x4xi32> : !transform.any_value
     transform.yield %linalg : !transform.any_op
   }
 

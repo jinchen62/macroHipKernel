@@ -25,26 +25,35 @@ import numpy as np
 # np.save("argmax_3d_output_f16.npy", argmax_output)
 
 
-batch = 4
-reductionSize = 64
-inputs  = np.zeros([batch, 1, reductionSize]).astype(np.float32)
-inputs[0, 0, 11:15] = [250, 249, 248, 247]
-inputs[1, 0, 21:25] = [250, 249, 248, 247]
-inputs[2, 0, 31:35] = [250, 249, 248, 247]
-inputs[3, 0, 41:45] = [250, 249, 248, 247]
-# inputs[4, 0, 5001:5005] = [250, 249, 248, 247]
-# inputs[5, 0, 6001:6005] = [250, 249, 248, 247]
-# inputs[6, 0, 7001:7005] = [250, 249, 248, 247]
-# inputs[7, 0, 8001:8005] = [250, 249, 248, 247]
-np.save("input0_bs4_rs64.npy", inputs)
+batch = 8
+group = 2
+reductionSize = 131072
+inputs  = np.zeros([batch, group, reductionSize]).astype(np.float32)
+inputs[0, 0, 1001:1005] = [250, 249, 248, 247]
+inputs[0, 1, 1002:1006] = [250, 249, 248, 247]
+inputs[1, 0, 2001:2005] = [250, 249, 248, 247]
+inputs[1, 1, 2002:2006] = [250, 249, 248, 247]
+inputs[2, 0, 3001:3005] = [250, 249, 248, 247]
+inputs[2, 1, 3002:3006] = [250, 249, 248, 247]
+inputs[3, 0, 4001:4005] = [250, 249, 248, 247]
+inputs[3, 1, 4002:4006] = [250, 249, 248, 247]
+inputs[4, 0, 5001:5005] = [250, 249, 248, 247]
+inputs[4, 1, 5002:5006] = [250, 249, 248, 247]
+inputs[5, 0, 6001:6005] = [250, 249, 248, 247]
+inputs[5, 1, 6002:6006] = [250, 249, 248, 247]
+inputs[6, 0, 7001:7005] = [250, 249, 248, 247]
+inputs[6, 1, 7002:7006] = [250, 249, 248, 247]
+inputs[7, 0, 8001:8005] = [250, 249, 248, 247]
+inputs[7, 1, 8002:8006] = [250, 249, 248, 247]
+np.save("input0_bs8_c2.npy", inputs)
 
-# inputs_fp16 = inputs.astype(np.float16)
-# np.save("input0_f16.npy", inputs_fp16)
+inputs_fp16 = inputs.astype(np.float16)
+np.save("input0_bs8_c2_f16.npy", inputs_fp16)
 
 import torch
 inputs_torch = torch.tensor(inputs, dtype=torch.float32)
-# inputs_torch_f16 = torch.tensor(inputs_fp16, dtype=torch.float16)
-values, indices = torch.topk(inputs_torch, k=4, dim=2)
+inputs_torch_f16 = torch.tensor(inputs_fp16, dtype=torch.float16)
+values, indices = torch.topk(inputs_torch_f16, k=4, dim=2)
 print(values)
 print(indices)
 # tensor([[[250., 249., 248., 247.]],
@@ -72,3 +81,20 @@ print(indices)
 #         [[21, 22, 23, 24]],
 #         [[31, 32, 33, 34]],
 #         [[41, 42, 43, 44]]])
+
+# tensor([[[250., 249., 248., 247.],
+#          [250., 249., 248., 247.]],
+#         [[250., 249., 248., 247.],
+#          [250., 249., 248., 247.]],
+#         [[250., 249., 248., 247.],
+#          [250., 249., 248., 247.]],
+#         [[250., 249., 248., 247.],
+#          [250., 249., 248., 247.]]], dtype=torch.float16)
+# tensor([[[11, 12, 13, 14],
+#          [12, 13, 14, 15]],
+#         [[21, 22, 23, 24],
+#          [22, 23, 24, 25]],
+#         [[31, 32, 33, 34],
+#          [32, 33, 34, 35]],
+#         [[41, 42, 43, 44],
+#          [42, 43, 44, 45]]])

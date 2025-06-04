@@ -22,12 +22,15 @@ extern "C" __global__ void topk_F32I32(const float* __restrict__ inputBuffer,
                                        int32_t* __restrict__ outputIndices,
                                        int reductionSize) {
   int k = 4;
-  int batchID = blockIdx.x;
+  int groupID = blockIdx.x; // dim 1
+  int batchID = blockIdx.y; // dim 0
+  int groupCount = gridDim.x;
   uint laneID = threadIdx.x;
 
-  const float* batchInput = inputBuffer + batchID * reductionSize;
-  float* batchOutputValues = outputValues + batchID * k;
-  int32_t* batchOutputIndices = outputIndices + batchID * k;
+  int linearIndex = batchID * groupCount + groupID;
+  const float* batchInput = inputBuffer + linearIndex * reductionSize;
+  float* batchOutputValues = outputValues + linearIndex * k;
+  int32_t* batchOutputIndices = outputIndices + linearIndex * k;
 
   float topk_vals[MAX_K];
   int32_t topk_indices[MAX_K];
@@ -79,7 +82,6 @@ extern "C" __global__ void topk_F32I32(const float* __restrict__ inputBuffer,
       for (int j = 0; j < k; ++j) {
         int IDX = j + laneID * k;
         if (warp_topk_vals[IDX] < hold_v) {
-
           float tmp_v = warp_topk_vals[IDX];
           int32_t tmp_i = warp_topk_indices[IDX];
           warp_topk_vals[IDX] = hold_v;
