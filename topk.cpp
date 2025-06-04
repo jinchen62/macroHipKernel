@@ -15,7 +15,7 @@ using float32_t = float;
 #define INPUT_TY float32_t
 
 constexpr uint32_t recordRuns = 100u;
-constexpr int ARGMAX_LABEL = 7243;  // Will still be top-1 here
+constexpr int ARGMAX_LABEL = 1001;  // Will still be top-1 here
 constexpr int k = 4;
 constexpr int batchSize = 8;
 
@@ -24,7 +24,7 @@ static inline void fillIndex(DataT* mat, uint32_t m, uint32_t n, int k) {
     for (int i = 0; i < m; ++i) {
         for (int j = 0; j < n; j++) {
             // Fill top-K largest values at known locations
-            mat[i * n + j] = (j >= ARGMAX_LABEL + i && j < ARGMAX_LABEL + i + k)
+            mat[i * n + j] = (j >= ARGMAX_LABEL + 1000 * i && j < ARGMAX_LABEL + 1000 * i + k)
                              ? static_cast<DataT>(250.0)
                              : static_cast<DataT>(0.0);
         }
@@ -82,7 +82,7 @@ void benchmark_module(size_t reductionSize) {
     }
 
     // Prepare kernel arguments
-    size_t block_dimx = 32;
+    size_t block_dimx = 64;
     size_t block_dimy = 1;
     int gridX = batchSize;
     int gridY = 1;
@@ -126,7 +126,7 @@ void benchmark_module(size_t reductionSize) {
     // Validate
     for (int b = 0; b < batchSize; ++b) {
         std::vector<OUTPUT_TY> expected;
-        for (int i = 0; i < k; ++i) expected.push_back(ARGMAX_LABEL + i + b);
+        for (int i = 0; i < k; ++i) expected.push_back(ARGMAX_LABEL + i + 1000 * b);
 
         std::vector<OUTPUT_TY> actual(outputIndices.begin() + b * k, outputIndices.begin() + (b + 1) * k);
         std::sort(actual.begin(), actual.end());
