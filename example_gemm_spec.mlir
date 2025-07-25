@@ -1,8 +1,8 @@
-// // Copyright (C) 2025, Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (C) 2025, Advanced Micro Devices, Inc. All rights reserved.
 #rocm_target = #hal.executable.target<"rocm", "rocm-hsaco-fb", {target_arch = "gfx950", ukernels = "none"}>
 
 module attributes {transform.with_named_sequence} {
-  util.func public @gemm_a4w4_asm_entry_point(%arg0: tensor<?x?xui8>, %arg1: tensor<?x?xui8>, %arg2: tensor<?x?xf8E8M0FNU>, %arg3: tensor<?x?xf8E8M0FNU>, %arg4: tensor<?x?xbf16>) -> (tensor<?x?xbf16>) {
+  util.func private @gemm_a4w4_asm_entry_point(%arg0: tensor<?x?xui8>, %arg1: tensor<?x?xui8>, %arg2: tensor<?x?xf8E8M0FNU>, %arg3: tensor<?x?xf8E8M0FNU>, %arg4: tensor<?x?xbf16>) -> (tensor<?x?xbf16>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %M = tensor.dim %arg0, %c0 : tensor<?x?xui8>
@@ -15,7 +15,7 @@ module attributes {transform.with_named_sequence} {
     %add = arith.addi %M, %c255 : index
     %div = arith.divui %add, %c256 : index
     %m_256 = arith.muli %div, %c256 : index
-    %out = hal.dispatch.extern "gemm_a4w4_asm"[%M, %N](%arg0, %arg1, %arg2, %arg3, %arg4) : (tensor<?x?xui8>{%M, %k_half}, tensor<?x?xui8>{%N, %k_half}, tensor<?x?xf8E8M0FNU>{%M, %k_half_16}, tensor<?x?xf8E8M0FNU>{%N, %k_half_16}, tensor<?x?xbf16>{%M, %N}) -> tensor<?x?xbf16>{%m_256, %N}
+    %out = hal.dispatch.extern "_ZN5aiter42f4gemm_bf16_per1x32Fp4_BpreShuffle_256x256E"[%M, %N](%arg0, %arg1, %arg2, %arg3, %arg4) : (tensor<?x?xui8>{%M, %k_half}, tensor<?x?xui8>{%N, %k_half}, tensor<?x?xf8E8M0FNU>{%M, %k_half_16}, tensor<?x?xf8E8M0FNU>{%N, %k_half_16}, tensor<?x?xbf16>{%M, %N}) -> tensor<?x?xbf16>{%m_256, %N}
       count(%device: !hal.device, %m: index, %n: index) -> (index, index, index) {
         %c1_0 = arith.constant 1 : index
         %subm = arith.constant 256 : index
@@ -41,11 +41,11 @@ module attributes {transform.with_named_sequence} {
       objects({
         #rocm_target ordinal(0) = [
           #hal.executable.object<{
-            path = "/home/jincheye/aiter/hsa/gfx950/f4gemm/f4gemm_bf16_per1x32Fp4_tn_256x256.co"
+            path = "/home/jincheye/aiter/hsa/gfx950/f4gemm/f4gemm_bf16_per1x32Fp4_BpreShuffle_256x256.co"
           }>
         ]
       })
-      attributes {subgroupSize = 64, workgroup_size = [64 : index, 1 : index, 1 : index]}
+      attributes {subgroupSize = 64, workgroup_size = [256 : index, 1 : index, 1 : index]}
     util.return %out : tensor<?x?xbf16>
   }
 
@@ -57,8 +57,6 @@ module attributes {transform.with_named_sequence} {
   transform.named_sequence @cast_and_call_gemm_a4w4(%gemm_a4w4: !transform.any_op {transform.readonly}) {
     %module = transform.util.get_nearest_symbol_table %gemm_a4w4 : (!transform.any_op) -> !transform.any_op
     %func = transform.util.import_symbol @gemm_a4w4_asm_entry_point into %module if undefined : (!transform.any_op) -> !transform.any_op
-    transform.print %gemm_a4w4 : !transform.any_op
-    // transform.print %func : !transform.any_op
     %ins = transform.get_operand %gemm_a4w4[all] : (!transform.any_op) -> !transform.any_value
     %outs = transform.get_result %gemm_a4w4[all] : (!transform.any_op) -> !transform.any_value
     transform.util.cast_and_call %func(%ins) -> %outs before %gemm_a4w4 {
@@ -76,8 +74,7 @@ module attributes {transform.with_named_sequence} {
           : (!transform.any_op) -> (!transform.any_op)
     }
     transform.apply_dce to %module : !transform.any_op
-    // transform.print %module : !transform.any_op
-    // transform.apply_registered_pass "inline" to %module : (!transform.any_op) -> !transform.any_op
+    transform.apply_registered_pass "inline" to %module : (!transform.any_op) -> !transform.any_op
     transform.yield
   }
 }

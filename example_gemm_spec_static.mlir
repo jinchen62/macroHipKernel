@@ -2,20 +2,12 @@
 #rocm_target = #hal.executable.target<"rocm", "rocm-hsaco-fb", {target_arch = "gfx950", ukernels = "none"}>
 
 module attributes {transform.with_named_sequence} {
-  util.func public @gemm_a4w4_asm_entry_point(%arg0: tensor<16384x8192xui8>, %arg1: tensor<16384x8192xui8>, %arg2: tensor<16384x512xf8E8M0FNU>, %arg3: tensor<16384x512xf8E8M0FNU>, %arg4: tensor<16384x16384xbf16>) -> (tensor<16384x16384xbf16>) {
+  util.func private @gemm_a4w4_asm_entry_point(%arg0: tensor<16384x8192xui8>, %arg1: tensor<16384x8192xui8>, %arg2: tensor<16384x512xf8E8M0FNU>, %arg3: tensor<16384x512xf8E8M0FNU>, %arg4: tensor<16384x16384xbf16>) -> (tensor<16384x16384xbf16>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %M = tensor.dim %arg0, %c0 : tensor<16384x8192xui8>
     %N = tensor.dim %arg1, %c0 : tensor<16384x8192xui8>
-    %k_half = tensor.dim %arg0, %c1 : tensor<16384x8192xui8>
-    %k_half_16 = tensor.dim %arg2, %c1 : tensor<16384x512xf8E8M0FNU>
-    // %m_256 = (%M + 255) // 256 * 256
-    %c255 = arith.constant 255 : index
-    %c256 = arith.constant 256 : index
-    %add = arith.addi %M, %c255 : index
-    %div = arith.divui %add, %c256 : index
-    %m_256 = arith.muli %div, %c256 : index
-    %out = hal.dispatch.extern "gemm_a4w4_asm"[%M, %N](%arg0, %arg1, %arg2, %arg3, %arg4) : (tensor<16384x8192xui8>, tensor<16384x8192xui8>, tensor<16384x512xf8E8M0FNU>, tensor<16384x512xf8E8M0FNU>, tensor<16384x16384xbf16>) -> tensor<16384x16384xbf16>
+    %out = hal.dispatch.extern "_ZN5aiter42f4gemm_bf16_per1x32Fp4_BpreShuffle_256x256E"[%M, %N](%arg0, %arg1, %arg2, %arg3, %arg4) : (tensor<16384x8192xui8>, tensor<16384x8192xui8>, tensor<16384x512xf8E8M0FNU>, tensor<16384x512xf8E8M0FNU>, tensor<16384x16384xbf16>) -> tensor<16384x16384xbf16>
       count(%device: !hal.device, %m: index, %n: index) -> (index, index, index) {
         %c1_0 = arith.constant 1 : index
         %subm = arith.constant 256 : index
@@ -41,7 +33,7 @@ module attributes {transform.with_named_sequence} {
       objects({
         #rocm_target ordinal(0) = [
           #hal.executable.object<{
-            path = "/home/jincheye/aiter/hsa/gfx950/f4gemm/f4gemm_bf16_per1x32Fp4_tn_256x256.co"
+            path = "/home/jincheye/aiter/hsa/gfx950/f4gemm/f4gemm_bf16_per1x32Fp4_BpreShuffle_256x256.co"
           }>
         ]
       })
@@ -57,8 +49,6 @@ module attributes {transform.with_named_sequence} {
   transform.named_sequence @cast_and_call_gemm_a4w4(%gemm_a4w4: !transform.any_op {transform.readonly}) {
     %module = transform.util.get_nearest_symbol_table %gemm_a4w4 : (!transform.any_op) -> !transform.any_op
     %func = transform.util.import_symbol @gemm_a4w4_asm_entry_point into %module if undefined : (!transform.any_op) -> !transform.any_op
-    transform.print %gemm_a4w4 : !transform.any_op
-    // transform.print %func : !transform.any_op
     %ins = transform.get_operand %gemm_a4w4[all] : (!transform.any_op) -> !transform.any_value
     %outs = transform.get_result %gemm_a4w4[all] : (!transform.any_op) -> !transform.any_value
     transform.util.cast_and_call %func(%ins) -> %outs before %gemm_a4w4 {
@@ -76,7 +66,6 @@ module attributes {transform.with_named_sequence} {
           : (!transform.any_op) -> (!transform.any_op)
     }
     transform.apply_dce to %module : !transform.any_op
-    // transform.print %module : !transform.any_op
     transform.apply_registered_pass "inline" to %module : (!transform.any_op) -> !transform.any_op
     transform.yield
   }
