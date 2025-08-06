@@ -12,18 +12,18 @@
 #include <chrono>
 #include "utils.h"
 
-#define IREE_HAL_ROCM_MAX_KERNEL_ARG 128
-
 using namespace std;
 
-constexpr int M = 16384;
-constexpr int N = 16384;
-constexpr int K = 16384;
+constexpr int M = 256;
+constexpr int N = 256;
+constexpr int K = 256;
 constexpr int K_f4x2 = K / 2;
 constexpr int K_e8m0 = K / 32;
 constexpr int recordRuns = 100;
-const char* hsaco_path = "/home/jincheye/aiter/hsa/gfx950/f4gemm/f4gemm_bf16_per1x32Fp4_BpreShuffle_256x256.co";
-const char* kernel_name = "_ZN5aiter42f4gemm_bf16_per1x32Fp4_BpreShuffle_256x256E";
+const char* hsaco_path = "f4gemm_bf16_per1x32Fp4_noBpreShuffle_256x256.co";
+const char* kernel_name = "_ZN5aiter44f4gemm_bf16_per1x32Fp4_noBpreShuffle_256x256E";
+constexpr int SUBM = 256;
+constexpr int SUBN = 256;
 
 struct p3
 {
@@ -87,6 +87,11 @@ struct __attribute__((packed)) KernelArgs
     int log2_k_split;
     // p3 _p23;
 };
+struct AiterAsmKernelArgs
+{
+    void *args_ptr;
+    void *arg_size_ptr;
+};
 
 std::vector<char> readFileIntoVector(const std::string& filename) {
     std::ifstream file(filename, std::ios::binary | std::ios::ate);
@@ -102,55 +107,78 @@ std::vector<char> readFileIntoVector(const std::string& filename) {
     return buffer;
 }
 
-// Simulated unpack/dequant for validation
-float unpack_f4x2(uint8_t val) {
-    return static_cast<float>(val);  // for now just identity
+float decode_e8m0(uint8_t byte) {
+    uint32_t bits = ((uint32_t)byte) << 23;
+    float f;
+    std::memcpy(&f, &bits, sizeof(f));
+    return f;
 }
 
-float scale_e8m0(uint8_t val) {
-    return static_cast<float>(val) / 255.0f;
+__bf16 float_to_bf16(float f) {
+    uint32_t u;
+    std::memcpy(&u, &f, sizeof(f));
+    uint16_t upper = static_cast<uint16_t>(u >> 16);
+    return *reinterpret_cast<__bf16*>(&upper);
 }
 
-void reference_gemm(const uint8_t* A, const uint8_t* B,
-                    const uint8_t* A_scale, const uint8_t* B_scale,
-                    float* output_ref, int M, int N, int K) {
+void reference_gemm(const vector<uint8_t> &A, const vector<uint8_t> &B,
+                    const vector<uint8_t> &A_scale, const vector<uint8_t> &B_scale,
+                    vector<float> &output_ref) {
     for (int m = 0; m < M; ++m) {
         for (int n = 0; n < N; ++n) {
             float acc = 0.0f;
             for (int k = 0; k < K; ++k) {
-                float a = unpack_f4x2(A[m * (K / 2) + k / 2]) * scale_e8m0(A_scale[m * (K / 32) + k / 32]);
-                float b = unpack_f4x2(B[n * (K / 2) + k / 2]) * scale_e8m0(B_scale[n * (K / 32) + k / 32]);
-                acc += a * b;
+                // Index into f4x2
+                int k_half = k / 2;
+                int is_hi = (k % 2 == 0) ? 1 : 0;
+
+                // Get 4-bit A value
+                uint8_t A_byte = A[m * K_f4x2 + k_half];
+                uint8_t A_val = is_hi ? (A_byte >> 4) & 0xF : A_byte & 0xF;
+
+                // Get 4-bit B value
+                uint8_t B_byte = B[n * K_f4x2 + k_half];  // B: N x K/2
+                uint8_t B_val = is_hi ? (B_byte >> 4) & 0xF : B_byte & 0xF;
+
+                // Get scale
+                int scale_idx = k / 32;
+                float A_s = decode_e8m0(A_scale[m * K_e8m0 + scale_idx]);
+                float B_s = decode_e8m0(B_scale[n * K_e8m0 + scale_idx]);
+
+                // Dequantize and accumulate
+                float A_f = A_s * static_cast<float>(A_val);
+                float B_f = B_s * static_cast<float>(B_val);
+                acc += A_f * B_f;
             }
-            output_ref[m * N + n] = acc;
+            output_ref[m * N + n] = float_to_bf16(acc);
         }
     }
 }
 
 void benchmark_module() {
-    std::vector<uint8_t> A(M * K_f4x2, 1);
-    std::vector<uint8_t> B(N * K_f4x2, 1);
-    std::vector<uint8_t> A_scale(M * K_e8m0, 1);
-    std::vector<uint8_t> B_scale(N * K_e8m0, 1);
-    std::vector<float> bias(M * N, 0);
-    std::vector<__bf16> output(M * N);
-    std::vector<float> output_ref(M * N);
+    vector<uint8_t> A(M * K_f4x2, 34); // 00100010 -> 2,2
+    vector<uint8_t> B(N * K_f4x2, 17); // 00010001 -> 1,1
+    vector<uint8_t> A_scale(M * K_e8m0, 63); // 1.0
+    vector<uint8_t> B_scale(N * K_e8m0, 63); // 1.0
+    vector<float> bias(M * N, 0);
+    vector<__bf16> output(M * N);
     float alpha = 1.0;
     float beta = 0.0;
     int c0 = 0;
     int c1 = 1;
 
     // Device buffers
+    std::cout << "Initializing device data..." << std::endl;
     uint8_t *d_A, *d_B, *d_As, *d_Bs;
     float *d_bias;
     __bf16 *d_output;
 
-    size_t bytesA = A.size() * sizeof(uint8_t);
-    size_t bytesB = B.size() * sizeof(uint8_t);
-    size_t bytesAs = A_scale.size() * sizeof(uint8_t);
-    size_t bytesBs = B_scale.size() * sizeof(uint8_t);
-    size_t bytesBias = bias.size() * sizeof(float);
-    size_t bytesOutput = output.size() * sizeof(__bf16);
+    const size_t bytesA = A.size() * sizeof(uint8_t);
+    const size_t bytesB = B.size() * sizeof(uint8_t);
+    const size_t bytesAs = A_scale.size() * sizeof(uint8_t);
+    const size_t bytesBs = B_scale.size() * sizeof(uint8_t);
+    const size_t bytesBias = bias.size() * sizeof(float);
+    const size_t bytesOutput = output.size() * sizeof(__bf16);
 
     CHECK_HIP_ERROR(hipMalloc(&d_A, bytesA));
     CHECK_HIP_ERROR(hipMalloc(&d_B, bytesB));
@@ -168,15 +196,17 @@ void benchmark_module() {
     // Load kernel
     hipModule_t module;
     hipFunction_t kernel;
-    auto hsacoVec = readFileIntoVector(hsaco_path);
+    vector<char> hsacoVec = readFileIntoVector(hsaco_path);
     CHECK_HIP_ERROR(hipModuleLoadDataEx(&module, hsacoVec.data(), 0, nullptr, nullptr));
     CHECK_HIP_ERROR(hipModuleGetFunction(&kernel, module, kernel_name));
 
+    // Set up args
     KernelArgs args;
-    args.ptr_D          = d_output;
-    args.ptr_C          = d_bias;
-    args.ptr_A          = d_A;
-    args.ptr_B          = d_B;
+    size_t arg_size = sizeof(args);
+    args.ptr_D          = (void*)d_output;
+    args.ptr_C          = (void*)d_bias;
+    args.ptr_A          = (void*)d_A;
+    args.ptr_B          = (void*)d_B;
     args.alpha          = alpha;
     args.beta           = beta;
     args.stride_C0      = N;
@@ -185,55 +215,23 @@ void benchmark_module() {
     args.M              = M;
     args.N              = N;
     args.K              = K;
-    args.ptr_ScaleA     = d_As;
-    args.ptr_ScaleB     = d_Bs;
+    args.ptr_ScaleA     = (void*)d_As;
+    args.ptr_ScaleB     = (void*)d_Bs;
     args.stride_ScaleA0 = K_e8m0;
     args.stride_ScaleB0 = K_e8m0;
     args.log2_k_split   = 0;
 
-    void* d_args;
-    CHECK_HIP_ERROR(hipMalloc(&d_args, sizeof(args)));
-    CHECK_HIP_ERROR(hipMemcpy(d_args, &args, sizeof(args), hipMemcpyHostToDevice));
-    void* kernelParam[] = { &d_args };
+    int bdx = 256, bdy = 1;
+    int gdx = (N + SUBN - 1) / SUBN;
+    int gdy = (M + SUBM - 1) / SUBM;
 
-    // Kernel args
-    // void** kernelParam = (void**)malloc(IREE_HAL_ROCM_MAX_KERNEL_ARG * sizeof(void*));
-    // hipDeviceptr_t* device_ptrs = (hipDeviceptr_t*)malloc(IREE_HAL_ROCM_MAX_KERNEL_ARG * sizeof(hipDeviceptr_t));
-    // for (size_t i = 0; i < IREE_HAL_ROCM_MAX_KERNEL_ARG; i++) {
-    //     kernelParam[i] = &device_ptrs[i];
-    // }
+    hipStream_t stream;
+    CHECK_HIP_ERROR(hipStreamCreate(&stream));
 
-    // *((hipDeviceptr_t*)kernelParam[0]) = (hipDeviceptr_t)d_args;
-    // *((hipDeviceptr_t*)kernelParam[0]) = (hipDeviceptr_t)d_output;
-    // *((hipDeviceptr_t*)kernelParam[2]) = (hipDeviceptr_t)d_bias;
-    // *((hipDeviceptr_t*)kernelParam[4]) = (hipDeviceptr_t)d_A;
-    // *((hipDeviceptr_t*)kernelParam[6]) = (hipDeviceptr_t)d_B;
-    // *((float*)kernelParam[8]) = alpha;
-    // *((float*)kernelParam[10]) = beta;
-    // *((uint32_t*)kernelParam[12]) = static_cast<uint32_t>(N);
-    // *((uint32_t*)kernelParam[14]) = static_cast<uint32_t>(c1);
-    // *((uint32_t*)kernelParam[16]) = static_cast<uint32_t>(N);
-    // *((uint32_t*)kernelParam[18]) = static_cast<uint32_t>(c1);
-    // *((uint32_t*)kernelParam[20]) = static_cast<uint32_t>(K);
-    // *((uint32_t*)kernelParam[22]) = static_cast<uint32_t>(c1);
-    // *((uint32_t*)kernelParam[24]) = static_cast<uint32_t>(K);
-    // *((uint32_t*)kernelParam[26]) = static_cast<uint32_t>(c1);
-    // *((uint32_t*)kernelParam[28]) = static_cast<uint32_t>(M);
-    // *((uint32_t*)kernelParam[30]) = static_cast<uint32_t>(N);
-    // *((uint32_t*)kernelParam[32]) = static_cast<uint32_t>(K);
-    // *((hipDeviceptr_t*)kernelParam[34]) = (hipDeviceptr_t)d_As;
-    // *((hipDeviceptr_t*)kernelParam[36]) = (hipDeviceptr_t)d_Bs;
-    // *((uint32_t*)kernelParam[38]) = static_cast<uint32_t>(K_e8m0);
-    // *((uint32_t*)kernelParam[40]) = static_cast<uint32_t>(c1);
-    // *((uint32_t*)kernelParam[42]) = static_cast<uint32_t>(K_e8m0);
-    // *((uint32_t*)kernelParam[44]) = static_cast<uint32_t>(c1);
-    // *((uint32_t*)kernelParam[46]) = static_cast<uint32_t>(c0);
-
-    int subm = 256, subn = 256;
-    int grid_x = (N + subn - 1) / subn;
-    int grid_y = (M + subm - 1) / subm;
-    std::cout << "grid_x: " << grid_x << "\n";
-    std::cout << "grid_y: " << grid_y << "\n";
+    AiterAsmKernelArgs kargs = {&args, &arg_size};
+    void *config[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, kargs.args_ptr,
+                      HIP_LAUNCH_PARAM_BUFFER_SIZE, kargs.arg_size_ptr,
+                      HIP_LAUNCH_PARAM_END};
 
     // Launch
     std::cout << "Launching GEMM kernel..." << std::endl;
@@ -243,27 +241,27 @@ void benchmark_module() {
     CHECK_HIP_ERROR(hipEventRecord(startEvent));
 
     for (uint32_t i = 0; i < recordRuns; ++i) {
-        assert(hipModuleLaunchKernel(kernel, grid_x, grid_y, 1,
-                                     256, 1, 1,
-                                     0, 0,
-                                     kernelParam, nullptr) == 0);
+        assert(hipModuleLaunchKernel(
+            kernel,
+            gdx, gdy, 1,
+            bdx, bdy, 1,
+            0, stream, nullptr, (void **)&config) == 0);
     }
 
     CHECK_HIP_ERROR(hipEventRecord(stopEvent));
     CHECK_HIP_ERROR(hipEventSynchronize(stopEvent));
 
-    float elapsedTimeMs;
+    auto elapsedTimeMs = 0.0f;
     CHECK_HIP_ERROR(hipEventElapsedTime(&elapsedTimeMs, startEvent, stopEvent));
-    std::cout << "Average kernel time: " << elapsedTimeMs / recordRuns << " ms\n";
-
     CHECK_HIP_ERROR(hipEventDestroy(startEvent));
     CHECK_HIP_ERROR(hipEventDestroy(stopEvent));
 
     CHECK_HIP_ERROR(hipMemcpy(output.data(), d_output, bytesOutput, hipMemcpyDeviceToHost));
 
     // Validate
-    reference_gemm(A.data(), B.data(), A_scale.data(), B_scale.data(), output_ref.data(), M, N, K);
-
+    std::cout << "Validating..." << std::endl;
+    vector<float> output_ref(M * N);
+    reference_gemm(A, B, A_scale, B_scale, output_ref);
     bool correct = true;
     for (int i = 0; i < M * N; ++i) {
         float gpu_val = __bfloat162float(output[i]);
@@ -274,7 +272,6 @@ void benchmark_module() {
             correct = false;
         }
     }
-
     if (correct)
         std::cout << "GEMM kernel validated successfully!\n";
     else
@@ -287,6 +284,9 @@ void benchmark_module() {
     CHECK_HIP_ERROR(hipFree(d_Bs));
     CHECK_HIP_ERROR(hipFree(d_bias));
     CHECK_HIP_ERROR(hipFree(d_output));
+
+    std::cout << "Average kernel time: " << elapsedTimeMs / recordRuns << " ms\n";
+    std::cout << "Finished!" << std::endl;
 }
 
 int main(int argc, char *argv[]) {
