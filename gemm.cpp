@@ -12,6 +12,8 @@
 #include <chrono>
 #include "utils.h"
 
+#define IREE_HAL_ROCM_MAX_KERNEL_ARG 96
+
 using namespace std;
 
 constexpr int M = 256;
@@ -201,25 +203,36 @@ void benchmark_module() {
     CHECK_HIP_ERROR(hipModuleGetFunction(&kernel, module, kernel_name));
 
     // Set up args
-    KernelArgs args;
-    size_t arg_size = sizeof(args);
-    args.ptr_D          = (void*)d_output;
-    args.ptr_C          = (void*)d_bias;
-    args.ptr_A          = (void*)d_A;
-    args.ptr_B          = (void*)d_B;
-    args.alpha          = alpha;
-    args.beta           = beta;
-    args.stride_C0      = N;
-    args.stride_A0      = K;
-    args.stride_B0      = K;
-    args.M              = M;
-    args.N              = N;
-    args.K              = K;
-    args.ptr_ScaleA     = (void*)d_As;
-    args.ptr_ScaleB     = (void*)d_Bs;
-    args.stride_ScaleA0 = K_e8m0;
-    args.stride_ScaleB0 = K_e8m0;
-    args.log2_k_split   = 0;
+    void** kernelParam = (void**)malloc(IREE_HAL_ROCM_MAX_KERNEL_ARG * sizeof(void*));
+    hipDeviceptr_t* device_ptrs = (hipDeviceptr_t*)malloc(IREE_HAL_ROCM_MAX_KERNEL_ARG * sizeof(hipDeviceptr_t));
+    for (size_t i = 0; i < IREE_HAL_ROCM_MAX_KERNEL_ARG; i++) {
+        kernelParam[i] = &device_ptrs[i];
+    }
+
+    *((hipDeviceptr_t*)kernelParam[0]) = d_output;
+    *((hipDeviceptr_t*)kernelParam[2]) = d_bias;
+    *((hipDeviceptr_t*)kernelParam[4]) = d_A;
+    *((hipDeviceptr_t*)kernelParam[6]) = d_B;
+    *((float*)kernelParam[8]) = static_cast<float>(alpha);
+    *((float*)kernelParam[10]) = static_cast<float>(beta);
+    *((uint32_t*)kernelParam[12]) = static_cast<uint32_t>(N);
+    *((uint32_t*)kernelParam[14]) = static_cast<uint32_t>(c1);
+    *((uint32_t*)kernelParam[16]) = static_cast<uint32_t>(N);
+    *((uint32_t*)kernelParam[18]) = static_cast<uint32_t>(c1);
+    *((uint32_t*)kernelParam[20]) = static_cast<uint32_t>(K);
+    *((uint32_t*)kernelParam[22]) = static_cast<uint32_t>(c1);
+    *((uint32_t*)kernelParam[24]) = static_cast<uint32_t>(K);
+    *((uint32_t*)kernelParam[26]) = static_cast<uint32_t>(c1);
+    *((uint32_t*)kernelParam[28]) = static_cast<uint32_t>(M);
+    *((uint32_t*)kernelParam[30]) = static_cast<uint32_t>(N);
+    *((uint32_t*)kernelParam[32]) = static_cast<uint32_t>(K);
+    *((hipDeviceptr_t*)kernelParam[34]) = d_As;
+    *((hipDeviceptr_t*)kernelParam[36]) = d_Bs;
+    *((uint32_t*)kernelParam[38]) = static_cast<uint32_t>(K_e8m0);
+    *((uint32_t*)kernelParam[40]) = static_cast<uint32_t>(c1);
+    *((uint32_t*)kernelParam[42]) = static_cast<uint32_t>(K_e8m0);
+    *((uint32_t*)kernelParam[44]) = static_cast<uint32_t>(c1);
+    *((int*)kernelParam[46]) = static_cast<int>(c0);
 
     int bdx = 256, bdy = 1;
     int gdx = (N + SUBN - 1) / SUBN;
@@ -227,11 +240,6 @@ void benchmark_module() {
 
     hipStream_t stream;
     CHECK_HIP_ERROR(hipStreamCreate(&stream));
-
-    AiterAsmKernelArgs kargs = {&args, &arg_size};
-    void *config[] = {HIP_LAUNCH_PARAM_BUFFER_POINTER, kargs.args_ptr,
-                      HIP_LAUNCH_PARAM_BUFFER_SIZE, kargs.arg_size_ptr,
-                      HIP_LAUNCH_PARAM_END};
 
     // Launch
     std::cout << "Launching GEMM kernel..." << std::endl;
@@ -245,7 +253,7 @@ void benchmark_module() {
             kernel,
             gdx, gdy, 1,
             bdx, bdy, 1,
-            0, stream, nullptr, (void **)&config) == 0);
+            0, stream, kernelParam, nullptr) == 0);
     }
 
     CHECK_HIP_ERROR(hipEventRecord(stopEvent));
