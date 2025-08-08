@@ -12,7 +12,7 @@
 #include <chrono>
 #include "utils.h"
 
-#define IREE_HAL_ROCM_MAX_KERNEL_ARG 96
+#define IREE_HAL_ROCM_MAX_KERNEL_ARG 86
 
 using namespace std;
 
@@ -22,78 +22,10 @@ constexpr int K = 256;
 constexpr int K_f4x2 = K / 2;
 constexpr int K_e8m0 = K / 32;
 constexpr int recordRuns = 100;
-const char* hsaco_path = "f4gemm_bf16_per1x32Fp4_noBpreShuffle_256x256.co";
-const char* kernel_name = "_ZN5aiter44f4gemm_bf16_per1x32Fp4_noBpreShuffle_256x256E";
+const char* hsaco_path = "f4gemm_outBF16_tn_256x256_scale.s.co";
+const char* kernel_name = "f4gemm_kernel_func";
 constexpr int SUBM = 256;
 constexpr int SUBN = 256;
-
-struct p3
-{
-    unsigned int _p0;
-    unsigned int _p1;
-    unsigned int _p2;
-};
-struct p2
-{
-    unsigned int _p0;
-    unsigned int _p1;
-};
-struct __attribute__((packed)) KernelArgs
-{
-    void* ptr_D;
-    p2 _p0;
-    void* ptr_C;
-    p2 _p1;
-    void* ptr_A;
-    p2 _p2;
-    void* ptr_B;
-    p2 _p3;
-    float alpha;
-    p3 _p4;
-    float beta;
-    p3 _p5;
-    unsigned int stride_D0;
-    p3 _p6;
-    unsigned int stride_D1;
-    p3 _p7;
-    unsigned int stride_C0;
-    p3 _p8;
-    unsigned int stride_C1;
-    p3 _p9;
-    unsigned int stride_A0;
-    p3 _p10;
-    unsigned int stride_A1;
-    p3 _p11;
-    unsigned int stride_B0;
-    p3 _p12;
-    unsigned int stride_B1;
-    p3 _p13;
-    unsigned int M;
-    p3 _p14;
-    unsigned int N;
-    p3 _p15;
-    unsigned int K;
-    p3 _p16;
-    void* ptr_ScaleA;
-    p2 _p17;
-    void* ptr_ScaleB;
-    p2 _p18;
-    unsigned int stride_ScaleA0;
-    p3 _p19;
-    unsigned int stride_ScaleA1;
-    p3 _p20;
-    unsigned int stride_ScaleB0;
-    p3 _p21;
-    unsigned int stride_ScaleB1;
-    p3 _p22;
-    int log2_k_split;
-    // p3 _p23;
-};
-struct AiterAsmKernelArgs
-{
-    void *args_ptr;
-    void *arg_size_ptr;
-};
 
 std::vector<char> readFileIntoVector(const std::string& filename) {
     std::ifstream file(filename, std::ios::binary | std::ios::ate);
@@ -213,26 +145,18 @@ void benchmark_module() {
     *((hipDeviceptr_t*)kernelParam[2]) = d_bias;
     *((hipDeviceptr_t*)kernelParam[4]) = d_A;
     *((hipDeviceptr_t*)kernelParam[6]) = d_B;
-    *((float*)kernelParam[8]) = static_cast<float>(alpha);
-    *((float*)kernelParam[10]) = static_cast<float>(beta);
-    *((uint32_t*)kernelParam[12]) = static_cast<uint32_t>(N);
-    *((uint32_t*)kernelParam[14]) = static_cast<uint32_t>(c1);
-    *((uint32_t*)kernelParam[16]) = static_cast<uint32_t>(N);
-    *((uint32_t*)kernelParam[18]) = static_cast<uint32_t>(c1);
-    *((uint32_t*)kernelParam[20]) = static_cast<uint32_t>(K);
-    *((uint32_t*)kernelParam[22]) = static_cast<uint32_t>(c1);
+    *((hipDeviceptr_t*)kernelParam[8]) = d_As;
+    *((hipDeviceptr_t*)kernelParam[10]) = d_Bs;
+    *((float*)kernelParam[12]) = static_cast<float>(alpha);
+    *((float*)kernelParam[14]) = static_cast<float>(beta);
+    *((uint32_t*)kernelParam[20]) = static_cast<uint32_t>(N);
     *((uint32_t*)kernelParam[24]) = static_cast<uint32_t>(K);
-    *((uint32_t*)kernelParam[26]) = static_cast<uint32_t>(c1);
-    *((uint32_t*)kernelParam[28]) = static_cast<uint32_t>(M);
-    *((uint32_t*)kernelParam[30]) = static_cast<uint32_t>(N);
-    *((uint32_t*)kernelParam[32]) = static_cast<uint32_t>(K);
-    *((hipDeviceptr_t*)kernelParam[34]) = d_As;
-    *((hipDeviceptr_t*)kernelParam[36]) = d_Bs;
+    *((uint32_t*)kernelParam[28]) = static_cast<uint32_t>(K);
+    *((uint32_t*)kernelParam[32]) = static_cast<uint32_t>(M);
+    *((uint32_t*)kernelParam[34]) = static_cast<uint32_t>(N);
+    *((uint32_t*)kernelParam[36]) = static_cast<uint32_t>(K);
     *((uint32_t*)kernelParam[38]) = static_cast<uint32_t>(K_e8m0);
-    *((uint32_t*)kernelParam[40]) = static_cast<uint32_t>(c1);
     *((uint32_t*)kernelParam[42]) = static_cast<uint32_t>(K_e8m0);
-    *((uint32_t*)kernelParam[44]) = static_cast<uint32_t>(c1);
-    *((int*)kernelParam[46]) = static_cast<int>(c0);
 
     int bdx = 256, bdy = 1;
     int gdx = (N + SUBN - 1) / SUBN;
