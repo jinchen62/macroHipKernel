@@ -12,7 +12,7 @@
 #include <chrono>
 #include "utils.h"
 
-#define IREE_HAL_ROCM_MAX_KERNEL_ARG 86
+#define IREE_HAL_ROCM_MAX_KERNEL_ARG 128
 
 using namespace std;
 
@@ -22,7 +22,7 @@ constexpr int K = 256;
 constexpr int K_f4x2 = K / 2;
 constexpr int K_e8m0 = K / 32;
 constexpr int recordRuns = 100;
-const char* hsaco_path = "f4gemm_outBF16_tn_256x256_scale.s.co";
+const char* hsaco_path = "f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s.co";
 const char* kernel_name = "f4gemm_kernel_func";
 constexpr int SUBM = 256;
 constexpr int SUBN = 256;
@@ -141,22 +141,22 @@ void benchmark_module() {
         kernelParam[i] = &device_ptrs[i];
     }
 
-    *((hipDeviceptr_t*)kernelParam[0]) = d_output;
-    *((hipDeviceptr_t*)kernelParam[2]) = d_bias;
-    *((hipDeviceptr_t*)kernelParam[4]) = d_A;
-    *((hipDeviceptr_t*)kernelParam[6]) = d_B;
-    *((hipDeviceptr_t*)kernelParam[8]) = d_As;
-    *((hipDeviceptr_t*)kernelParam[10]) = d_Bs;
-    *((float*)kernelParam[12]) = static_cast<float>(alpha);
-    *((float*)kernelParam[14]) = static_cast<float>(beta);
-    *((uint32_t*)kernelParam[20]) = static_cast<uint32_t>(N);
-    *((uint32_t*)kernelParam[24]) = static_cast<uint32_t>(K);
-    *((uint32_t*)kernelParam[28]) = static_cast<uint32_t>(K);
-    *((uint32_t*)kernelParam[32]) = static_cast<uint32_t>(M);
-    *((uint32_t*)kernelParam[34]) = static_cast<uint32_t>(N);
-    *((uint32_t*)kernelParam[36]) = static_cast<uint32_t>(K);
-    *((uint32_t*)kernelParam[38]) = static_cast<uint32_t>(K_e8m0);
-    *((uint32_t*)kernelParam[42]) = static_cast<uint32_t>(K_e8m0);
+    *((hipDeviceptr_t*)kernelParam[0]) = d_A; // ptr_A
+    *((hipDeviceptr_t*)kernelParam[1]) = d_B; // ptr_B
+    *((hipDeviceptr_t*)kernelParam[2]) = d_As; // ptr_ScaleA
+    *((hipDeviceptr_t*)kernelParam[3]) = d_Bs; // ptr_ScaleB
+    *((hipDeviceptr_t*)kernelParam[4]) = d_bias; // ptr_C
+    *((hipDeviceptr_t*)kernelParam[5]) = d_output; // ptr_D
+    *((float*)kernelParam[6]) = static_cast<float>(alpha); // alpha
+    *((float*)kernelParam[7]) = static_cast<float>(beta); // beta
+    *((uint32_t*)kernelParam[8]) = static_cast<uint32_t>(K); // stride_A0
+    *((uint32_t*)kernelParam[9]) = static_cast<uint32_t>(K); // stride_B0
+    *((uint32_t*)kernelParam[10]) = static_cast<uint32_t>(N); // stride_C0
+    *((uint32_t*)kernelParam[11]) = static_cast<uint32_t>(M); // M
+    *((uint32_t*)kernelParam[12]) = static_cast<uint32_t>(N); // N
+    *((uint32_t*)kernelParam[13]) = static_cast<uint32_t>(K); // K
+    *((uint32_t*)kernelParam[14]) = static_cast<uint32_t>(K_e8m0); // stride_ScaleA0
+    *((uint32_t*)kernelParam[15]) = static_cast<uint32_t>(K_e8m0); // stride_ScaleB0
 
     int bdx = 256, bdy = 1;
     int gdx = (N + SUBN - 1) / SUBN;
