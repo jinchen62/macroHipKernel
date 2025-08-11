@@ -17,7 +17,7 @@ module @module attributes {stream.affinity.default = #hal.device.affinity<@__dev
     %c512 = arith.constant 512 : index
     %c8192 = arith.constant 8192 : index
     %c16384 = arith.constant 16384 : index
-    %c1_i32 = arith.constant 1 : i32
+    %c1065353216_i32 = arith.constant 1065353216 : i32
     %c0_i32 = arith.constant 0 : i32
     %cst = arith.constant dense<0.000000e+00> : tensor<16384x16384xf32>
     %cst_0 = arith.constant dense<6.400000e+01> : tensor<16384x512xf8E8M0FNU>
@@ -29,7 +29,7 @@ module @module attributes {stream.affinity.default = #hal.device.affinity<@__dev
     %cast_2 = tensor.cast %0 : tensor<16384x512xf8E8M0FNU> to tensor<?x?xf8E8M0FNU>
     %cast_3 = tensor.cast %1 : tensor<16384x512xf8E8M0FNU> to tensor<?x?xf8E8M0FNU>
     %cast_4 = tensor.cast %2 : tensor<16384x16384xf32> to tensor<?x?xf32>
-    %3 = hal.dispatch.extern "f4gemm_kernel_func"[%c16384, %c16384](%c1_i32, %c0_i32, %c16384_i32, %c16384_i32, %c16384_i32, %c16384_i32, %c16384_i32, %c16384_i32, %c512_i32, %c512_i32, %cast, %cast_1, %cast_2, %cast_3, %cast_4) : (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, tensor<?x?xui8>{%c16384, %c8192}, tensor<?x?xui8>{%c16384, %c8192}, tensor<?x?xf8E8M0FNU>{%c16384, %c512}, tensor<?x?xf8E8M0FNU>{%c16384, %c512}, tensor<?x?xf32>{%c16384, %c16384}) -> tensor<?x?xbf16>{%c16384, %c16384} count(%arg2: !hal.device, %arg3: index, %arg4: index) -> (index, index, index) {
+    %3 = hal.dispatch.extern "f4gemm_kernel_func"[%c16384, %c16384](%c1065353216_i32, %c0_i32, %c16384_i32, %c16384_i32, %c16384_i32, %c16384_i32, %c16384_i32, %c16384_i32, %c512_i32, %c512_i32, %cast, %cast_1, %cast_2, %cast_3, %cast_4) : (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, tensor<?x?xui8>{%c16384, %c8192}, tensor<?x?xui8>{%c16384, %c8192}, tensor<?x?xf8E8M0FNU>{%c16384, %c512}, tensor<?x?xf8E8M0FNU>{%c16384, %c512}, tensor<?x?xf32>{%c16384, %c16384}) -> tensor<?x?xbf16>{%c16384, %c16384} count(%arg2: !hal.device, %arg3: index, %arg4: index) -> (index, index, index) {
       %c1 = arith.constant 1 : index
       %c256 = arith.constant 256 : index
       %c255 = arith.constant 255 : index
@@ -39,7 +39,7 @@ module @module attributes {stream.affinity.default = #hal.device.affinity<@__dev
       %8 = arith.divui %7, %c256 : index
       hal.return %6, %8, %c1 : index, index, index
     } layout(#pipeline_layout) objects({
-      #executable_target_rocm_hsaco_fb1 ordinal(0) = [#hal.executable.object<{path = "/home/jincheye/macroHipKernel/f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s.co"}>]
+      #executable_target_rocm_hsaco_fb1 ordinal(0) = [#hal.executable.object<{path = "f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s.co"}>]
     }) attributes {subgroupSize = 64 : i64, workgroup_size = [256 : index, 1 : index, 1 : index]}
     %cast_5 = tensor.cast %3 : tensor<?x?xbf16> to tensor<16384x16384xbf16>
     util.return %cast_5 : tensor<16384x16384xbf16>

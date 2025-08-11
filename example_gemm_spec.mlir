@@ -17,15 +17,15 @@ module attributes {transform.with_named_sequence} {
     %add = arith.addi %M, %c255 : index
     %div = arith.divui %add, %c256 : index
     %m_256 = arith.muli %div, %c256 : index
-    %alpha = arith.constant 1 : i32
-    %beta = arith.constant 0 : i32
-    // %alpha_i32 = arith.bitcast %alpha : f32 to i32
-    // %beta_i32  = arith.bitcast %beta  : f32 to i32
+    %alpha = arith.constant 1.0 : f32
+    %beta = arith.constant 0.0 : f32
+    %alpha_i32 = arith.bitcast %alpha : f32 to i32
+    %beta_i32  = arith.bitcast %beta  : f32 to i32
     %M_i32 = arith.index_cast %M : index to i32
     %N_i32 = arith.index_cast %N : index to i32
     %K_i32 = arith.index_cast %K : index to i32
     %K_e8m0_i32 = arith.index_cast %K_e8m0 : index to i32
-    %out = hal.dispatch.extern "f4gemm_kernel_func"[%M, %N](%alpha, %beta, %K_i32, %K_i32, %N_i32, %M_i32, %N_i32, %K_i32, %K_e8m0_i32, %K_e8m0_i32, %arg0, %arg1, %arg2, %arg3, %arg4) : (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, tensor<?x?xui8>{%M, %K_f4x2}, tensor<?x?xui8>{%N, %K_f4x2}, tensor<?x?xf8E8M0FNU>{%M, %K_e8m0}, tensor<?x?xf8E8M0FNU>{%N, %K_e8m0}, tensor<?x?xf32>{%M, %N}) -> tensor<?x?xbf16>{%m_256, %N}
+    %out = hal.dispatch.extern "f4gemm_kernel_func"[%M, %N](%alpha_i32, %beta_i32, %K_i32, %K_i32, %N_i32, %M_i32, %N_i32, %K_i32, %K_e8m0_i32, %K_e8m0_i32, %arg0, %arg1, %arg2, %arg3, %arg4) : (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, tensor<?x?xui8>{%M, %K_f4x2}, tensor<?x?xui8>{%N, %K_f4x2}, tensor<?x?xf8E8M0FNU>{%M, %K_e8m0}, tensor<?x?xf8E8M0FNU>{%N, %K_e8m0}, tensor<?x?xf32>{%M, %N}) -> tensor<?x?xbf16>{%m_256, %N}
       count(%device: !hal.device, %m: index, %n: index) -> (index, index, index) {
         %c1_0 = arith.constant 1 : index
         %subm = arith.constant 256 : index
@@ -51,7 +51,7 @@ module attributes {transform.with_named_sequence} {
       objects({
         #rocm_target ordinal(0) = [
           #hal.executable.object<{
-            path = "/home/jincheye/macroHipKernel/f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s.co"
+            path = "f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s.co"
           }>
         ]
       })
