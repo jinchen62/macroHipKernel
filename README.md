@@ -1,9 +1,10 @@
 # macroHipKernel
 
-## Instructions to compile and test argmax:
+## Instructions to compile and test:
 
 ```sh
-./generate_hsaco.sh argmax_ukernel.c
-hipcc argmax.cpp
-./a.out 32000
+hipcc gemm.cpp -o gemm_test
+./gemm_test
 ```
+
+see cmds.txt

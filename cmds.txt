@@ -1,12 +1,3 @@
-./generate_hsaco.sh topk_ukernel.c
-hipcc topk.cpp -o topk_test
-./topk_test 131072
-
-iree-compile linalg_example_topk.mlir --iree-hal-target-device=hip --iree-hip-target=gfx950 --iree-hal-executable-object-search-path=/home/jincheye/iree-build --iree-preprocessing-transform-spec-filename=/home/jincheye/macroHipKernel/example_topk_spec_f16i32.mlir -o linalg_example_topk_hip.vmfb
-iree-benchmark-module --module=linalg_example_topk_hip.vmfb --function=topk_k4 --device=hip://4 --input=8x1x131072xf16
-iree-run-module --module=linalg_example_topk_hip.vmfb --function=topk_k4 --device=hip://4 --input=@input0_bs8.npy
-
-
 ### GEMM
 
 ./generate_gemm_asm.sh f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s
