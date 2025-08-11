@@ -2,20 +2,30 @@
 #rocm_target = #hal.executable.target<"rocm", "rocm-hsaco-fb", {target_arch = "gfx950", ukernels = "none"}>
 
 module attributes {transform.with_named_sequence} {
-  util.func private @gemm_a4w4_asm_entry_point(%arg0: tensor<?x?xui8>, %arg1: tensor<?x?xui8>, %arg2: tensor<?x?xf8E8M0FNU>, %arg3: tensor<?x?xf8E8M0FNU>, %arg4: tensor<?x?xbf16>) -> (tensor<?x?xbf16>) {
+  util.func private @gemm_a4w4_asm_entry_point(%arg0: tensor<?x?xui8>, %arg1: tensor<?x?xui8>, %arg2: tensor<?x?xf8E8M0FNU>, %arg3: tensor<?x?xf8E8M0FNU>, %arg4: tensor<?x?xf32>) -> (tensor<?x?xbf16>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
+    %c2 = arith.constant 2 : index
     %M = tensor.dim %arg0, %c0 : tensor<?x?xui8>
     %N = tensor.dim %arg1, %c0 : tensor<?x?xui8>
-    %k_half = tensor.dim %arg0, %c1 : tensor<?x?xui8>
-    %k_half_16 = tensor.dim %arg2, %c1 : tensor<?x?xf8E8M0FNU>
+    %K_f4x2 = tensor.dim %arg0, %c1 : tensor<?x?xui8>
+    %K_e8m0 = tensor.dim %arg2, %c1 : tensor<?x?xf8E8M0FNU>
+    %K = arith.muli %K_f4x2, %c2 : index
     // %m_256 = (%M + 255) // 256 * 256
     %c255 = arith.constant 255 : index
     %c256 = arith.constant 256 : index
     %add = arith.addi %M, %c255 : index
     %div = arith.divui %add, %c256 : index
     %m_256 = arith.muli %div, %c256 : index
-    %out = hal.dispatch.extern "_ZN5aiter42f4gemm_bf16_per1x32Fp4_BpreShuffle_256x256E"[%M, %N](%arg0, %arg1, %arg2, %arg3, %arg4) : (tensor<?x?xui8>{%M, %k_half}, tensor<?x?xui8>{%N, %k_half}, tensor<?x?xf8E8M0FNU>{%M, %k_half_16}, tensor<?x?xf8E8M0FNU>{%N, %k_half_16}, tensor<?x?xbf16>{%M, %N}) -> tensor<?x?xbf16>{%m_256, %N}
+    %alpha = arith.constant 1 : i32
+    %beta = arith.constant 0 : i32
+    // %alpha_i32 = arith.bitcast %alpha : f32 to i32
+    // %beta_i32  = arith.bitcast %beta  : f32 to i32
+    %M_i32 = arith.index_cast %M : index to i32
+    %N_i32 = arith.index_cast %N : index to i32
+    %K_i32 = arith.index_cast %K : index to i32
+    %K_e8m0_i32 = arith.index_cast %K_e8m0 : index to i32
+    %out = hal.dispatch.extern "f4gemm_kernel_func"[%M, %N](%alpha, %beta, %K_i32, %K_i32, %N_i32, %M_i32, %N_i32, %K_i32, %K_e8m0_i32, %K_e8m0_i32, %arg0, %arg1, %arg2, %arg3, %arg4) : (i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, tensor<?x?xui8>{%M, %K_f4x2}, tensor<?x?xui8>{%N, %K_f4x2}, tensor<?x?xf8E8M0FNU>{%M, %K_e8m0}, tensor<?x?xf8E8M0FNU>{%N, %K_e8m0}, tensor<?x?xf32>{%M, %N}) -> tensor<?x?xbf16>{%m_256, %N}
       count(%device: !hal.device, %m: index, %n: index) -> (index, index, index) {
         %c1_0 = arith.constant 1 : index
         %subm = arith.constant 256 : index
@@ -30,7 +40,7 @@ module attributes {transform.with_named_sequence} {
         %gdy = arith.divui %m_add, %subm : index
         hal.return %gdx, %gdy, %c1_0 : index, index, index
       }
-      layout(#hal.pipeline.layout<bindings = [
+      layout(#hal.pipeline.layout<constants = 10, bindings = [
         #hal.pipeline.binding<storage_buffer, ReadOnly>,
         #hal.pipeline.binding<storage_buffer, ReadOnly>,
         #hal.pipeline.binding<storage_buffer, ReadOnly>,
@@ -41,7 +51,7 @@ module attributes {transform.with_named_sequence} {
       objects({
         #rocm_target ordinal(0) = [
           #hal.executable.object<{
-            path = "/home/jincheye/aiter/hsa/gfx950/f4gemm/f4gemm_bf16_per1x32Fp4_BpreShuffle_256x256.co"
+            path = "/home/jincheye/macroHipKernel/f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s.co"
           }>
         ]
       })
