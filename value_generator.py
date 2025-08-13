@@ -80,6 +80,11 @@ def test_gemm(dtype, M, N, K):
     w_scales = w_scales.view(torch.uint8)
     a, avg_a = run_torch(x, w, x_scales, w_scales, dtype)
 
+    # x = torch.full((M, 512), 34, dtype=torch.uint8)
+    # w = torch.full((M, 512), 17, dtype=torch.uint8)
+    # x_scales_shuffle = torch.full((M, 32), 2.0, dtype=torch.float8_e8m0fnu)
+    # w_scales_shuffle = torch.full((M, 32), 1.0, dtype=torch.float8_e8m0fnu)
+
     a.detach().contiguous().to(torch.bfloat16).cpu().view(torch.uint16).numpy().tofile("output_torch.bin")
 
     x.detach().contiguous().to(torch.uint8).cpu().numpy().tofile("input_x.bin")
