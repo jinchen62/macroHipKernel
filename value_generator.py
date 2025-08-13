@@ -109,7 +109,7 @@ def test_gemm(dtype, M, N, K):
         log2_k_split=0,
     )
 
-    c.detach().contiguous().to(torch.bfloat16).cpu().view(torch.uint16).numpy().tofile("output_asm.bin")
+    c.detach().contiguous().to(torch.bfloat16).cpu().view(torch.uint16).numpy().tofile("output_aiter.bin")
 
     err_c = checkAllclose(a, c[:M], msg="asm no splitK  ")
     tflops_c = M * N * K * 2 / avg_c / 1e6
