@@ -51,7 +51,7 @@ module attributes {transform.with_named_sequence} {
       objects({
         #rocm_target ordinal(0) = [
           #hal.executable.object<{
-            path = "f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s.co"
+            path = "f4gemm_outBF16_tn_256x256_scale_ordered_8bytes.s.co"
           }>
         ]
       })

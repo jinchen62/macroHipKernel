@@ -18,11 +18,11 @@ using namespace std;
 
 constexpr int M = 256;
 constexpr int N = 256;
-constexpr int K = 256;
+constexpr int K = 1024;
 constexpr int K_f4x2 = K / 2;
 constexpr int K_e8m0 = K / 32;
 constexpr int recordRuns = 100;
-const char* hsaco_path = "f4gemm_outBF16_tn_256x256_scale_ordered_grouped_8bytes.s.co";
+const char* hsaco_path = "f4gemm_outBF16_tn_256x256_scale_ordered_8bytes.s.co";
 const char* kernel_name = "f4gemm_kernel_func";
 constexpr int SUBM = 256;
 constexpr int SUBN = 256;
@@ -46,13 +46,6 @@ float decode_e8m0(uint8_t byte) {
     float f;
     std::memcpy(&f, &bits, sizeof(f));
     return f;
-}
-
-__bf16 float_to_bf16(float f) {
-    uint32_t u;
-    std::memcpy(&u, &f, sizeof(f));
-    uint16_t upper = static_cast<uint16_t>(u >> 16);
-    return *reinterpret_cast<__bf16*>(&upper);
 }
 
 void reference_gemm(const vector<uint8_t> &A, const vector<uint8_t> &B,
@@ -84,7 +77,7 @@ void reference_gemm(const vector<uint8_t> &A, const vector<uint8_t> &B,
                 float B_f = B_s * static_cast<float>(B_val);
                 acc += A_f * B_f;
             }
-            output_ref[m * N + n] = float_to_bf16(acc);
+            output_ref[m * N + n] = acc;
         }
     }
 }
@@ -92,10 +85,10 @@ void reference_gemm(const vector<uint8_t> &A, const vector<uint8_t> &B,
 void benchmark_module() {
     vector<uint8_t> A(M * K_f4x2, 34); // 00100010 -> 2,2
     vector<uint8_t> B(N * K_f4x2, 17); // 00010001 -> 1,1
-    vector<uint8_t> A_scale(M * K_e8m0, 63); // 1.0
-    vector<uint8_t> B_scale(N * K_e8m0, 63); // 1.0
-    vector<float> bias(M * N, 0);
-    vector<__bf16> output(M * N);
+    vector<uint8_t> A_scale(M * K_e8m0, 0x80); // 2.0
+    vector<uint8_t> B_scale(N * K_e8m0, 0x7F); // 1.0
+    vector<float> bias(M * N, 0.0);
+    vector<__bf16> output(M * N); // 4096.0
     float alpha = 1.0;
     float beta = 0.0;
     int c0 = 0;
